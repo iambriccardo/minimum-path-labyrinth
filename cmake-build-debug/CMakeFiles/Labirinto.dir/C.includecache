@@ -1,0 +1,16 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/Users/riccardobusetti/CLionProjects/Labirinto/main.c
+stdio.h
+-
+stdlib.h
+-
+sys/mman.h
+-
+
