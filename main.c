@@ -20,10 +20,11 @@ struct position {
 };
 
 void init_labyrinth();
+struct position* allocate_position_struct(int row, int col);
 struct position* calculate_father_position();
-struct position* calculate_loot_position();
+struct position* calculate_loot_position(struct position* father_position);
 void put_obstacles(int obstacles_number);
-struct position** calculate_next_positions();
+struct position** calculate_next_positions(int row, int col);
 void print_labyrinth();
 void* create_shared_memory(size_t size);
 
@@ -72,46 +73,108 @@ void init_labyrinth() {
     put_obstacles(10);
 }
 
-struct position* calculate_father_position() {
-    struct position* father_position = (struct position*) malloc(sizeof(struct position));
-    father_position->row = 0;
-    father_position->col = random(cols);
+struct position* allocate_position_struct(int row, int col) {
+    // Allocates some space for a position struct.
+    struct position* position = (struct position*) malloc(sizeof(struct position));
+    // Adds data to the position.
+    position->row = row;
+    position->col = col;
 
-    return father_position;
+    // Returns the position struct filled with the right data.
+    return position;
 }
 
-struct position* calculate_loot_position() {
-    struct position* loot_position = (struct position*) malloc(sizeof(struct position));
-    loot_position->row = random(rows);
-    loot_position->col = random(cols);
+struct position* calculate_father_position() {
+    // Returns the new position structure.
+    return allocate_position_struct(0, random(cols));
+}
 
-    return loot_position;
+struct position* calculate_loot_position(struct position* father_position) {
+    // Loop and generate a new number until we found the correct one
+    while (TRUE) {
+        int row = random(rows);
+        int col = random(cols);
+
+        // Checking if the position is the different than the start position.
+        if (row != father_position->row &&
+                col != father_position->col) return allocate_position_struct(row, col);
+    }
 }
 
 void put_obstacles(int obstacles_number) {
+    // Calculates the maximum number of obstacles that we can put.
     int max_obstacles_number = (int) (rows * cols * 0.20);
 
+    // Checking if the obstacles that the users wants to add are greater than
+    // the 20% of the number of cells.
     if (obstacles_number > max_obstacles_number) obstacles_number = max_obstacles_number;
 
     int i = 0;
-
+    // Loop n times that corresponds of the obstacles amount.
     while (i < obstacles_number) {
+        // Allocation of the position struct.
         struct position* obstacle_position = (struct position*) malloc(sizeof(struct position));
+        // Adds data to the position.
         obstacle_position->row = random(rows);
         obstacle_position->col = random(cols);
 
+        // Checks if we have space for an obstacle.
         if (labyrinth[obstacle_position->row][obstacle_position->col] == UNEXPLORED_CELL) {
+            // Adds the obstacle inside the labyrinth.
             labyrinth[obstacle_position->row][obstacle_position->col] = OBSTACLE_CELL;
             i++;
         }
     }
 }
 
-struct position** calculate_next_positions() {
+struct position** calculate_next_positions(int row, int col) {
+    // Allocate the positions array.
     struct position** next_positions = malloc(sizeof(struct position) * POSSIBLE_POSITIONS);
+    // Creating an index for the position.
+    int position_index = 0;
+
+    // Top verification.
+    if (row - 1 >= 0) {
+        struct position* next_position = (struct position*) malloc(sizeof(struct position));
+        next_position->row = row - 1;
+        next_position->col = col;
+        next_positions[position_index] = next_position;
+        position_index++;
+    }
+
+    // Bottom verification.
+    if (row + 1 < rows) {
+        struct position* next_position = (struct position*) malloc(sizeof(struct position));
+        next_position->row = row + 1;
+        next_position->col = col;
+        next_positions[position_index] = next_position;
+        position_index++;
+    }
+
+    // Left verification.
+    if (col - 1 >= 0) {
+        struct position* next_position = (struct position*) malloc(sizeof(struct position));
+        next_position->row = row;
+        next_position->col = col - 1;
+        next_positions[position_index] = next_position;
+        position_index++;
+    }
+
+    // Right verification.
+    if (col + 1 < cols) {
+        struct position* next_position = (struct position*) malloc(sizeof(struct position));
+        next_position->row = row;
+        next_position->col = col + 1;
+        next_positions[position_index] = next_position;
+        position_index++;
+    }
+
+    // Returns the new position structure.
+    return next_positions;
 }
 
 void print_labyrinth() {
+    // Loop through the matrix and print the values.
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             printf("%c", labyrinth[i][j]);
