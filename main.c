@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <zconf.h>
 
 #define UNEXPLORED_CELL 'o'
 #define EXPLORED_CELL 'x'
@@ -10,6 +11,7 @@
 #define FALSE 0
 #define TRUE 1
 #define POSSIBLE_POSITIONS 4
+#define MAX_PATH_COST 2000000
 
 #define random(x) rand() % x
 #define randomize srand((unsigned)time(NULL))
@@ -32,18 +34,122 @@ char **labyrinth = NULL;
 int rows = 0;
 int cols = 0;
 
-// TODO comment everything
+struct position* current_position = NULL;
+int next_positions_size = -1;
+int father_pid;
+int best_path_cost = MAX_PATH_COST;
+
 // TODO start implementation of calculation of next positions
 
 int main() {
-    // Begin the program
+    // Begin the program.
     printf("Quante righe vuoi avere: ");
     scanf("%d", &rows);
     printf("Quante colonne vuoi avere: ");
     scanf("%d", &cols);
-    // Initialization of the labyrinth
+    // Initialization of the labyrinth.
     init_labyrinth();
-    // Printing the labyrinth;
+    // Printing the labyrinth.
+    print_labyrinth();
+    // Saving the fathers pid
+    father_pid = getpid();
+    // Variable that manages the loop.
+    int continue_searching = TRUE;
+    // Starting the search for the minimum path.
+    while (continue_searching == TRUE) {
+        // Checking if the current position isn't null.
+        if (current_position != NULL) {
+            // Checking if the current position isn't on a loot.
+            if (labyrinth[current_position->row][current_position->col] != LOOT_CELL) {
+                // Marking the node as explored.
+                labyrinth[current_position->row][current_position->col] = EXPLORED_CELL;
+                // Calculating all the possible next positions.
+                struct position** next_positions = calculate_next_positions(current_position->row, current_position->col);
+                // Checking if we found other positions.
+                if (next_positions_size > 0) {
+                    // Loop counter.
+                    int i;
+                    // Pid variables.
+                    int pid = -1;
+                    // Array containing all the childs.
+                    int childs[next_positions_size];
+
+                    // Looping through every free position.
+                    for (i = 0; i < next_positions_size; i++) {
+                        // Creating a tmp position to restore.
+                        struct position* tmp_old_position = current_position;
+                        // Updating the current position to the next one.
+                        current_position = next_positions[i];
+                        // Creation of a child and saving of it's pid inside the childs
+                        // array.
+                        pid = fork();
+                        childs[i] = pid;
+                        // If we are in the child we need to stop the loop.
+                        // if we are in the father let's restore the old position.
+                        if (pid == 0) {
+                            break;
+                        } else {
+                            pid = -1;
+                            current_position = tmp_old_position;
+                        }
+                    }
+
+                    // If we are inside the father let's wait other sons to finish
+                    // their exploration.
+                    if (pid != 0) {
+                        // Loop counter.
+                        int j;
+                        // Status of the other processes.
+                        int cost;
+
+                        // Loop through every process we forked and waiting for their result.
+                        for (j = 0; j < next_positions_size; j++) {
+                            // Waiting for the forked processes.
+                            waitpid(childs[j], &cost, 0);
+                            // Converting the cost.
+                            cost = WEXITSTATUS(cost);
+
+                            // Checking if we are in some father but not the main,
+                            // so we can add + 1 to the cost.
+                            // Else if we are in the main father save the result if is
+                            // less than the previous
+                            if (father_pid != getpid()) {
+                                if (cost >= 1) {
+                                    exit(1 + cost);
+                                } else if (cost == 0) {
+                                    exit(0);
+                                }
+                            } else {
+                                if (cost >= 1) {
+                                    if (cost < best_path_cost) {
+                                        best_path_cost = cost;
+                                    }
+                                }
+                            }
+
+                        }
+
+                        if (father_pid == getpid()) continue_searching = FALSE;
+                    }
+                } else {
+                    exit(0);
+                }
+            } else {
+                exit(1);
+            }
+        }
+    }
+    // Printing a separator.
+    printf("\n----------\n");
+    // Printing the labyrinth.
+    print_labyrinth();
+    // Printing the result.
+    if (best_path_cost != MAX_PATH_COST) {
+        printf("Il cammino minimo e' lungo %i!\n", best_path_cost);
+    } else {
+        printf("Cammino minimo non trovato!\n");
+    }
+
 }
 
 void init_labyrinth() {
@@ -51,21 +157,24 @@ void init_labyrinth() {
     labyrinth = (char**) create_shared_memory(sizeof(char) * rows);
 
     // Creation of cols of the matrix.
-    for (int i = 0; i < rows; i++) labyrinth[i] = (char*) create_shared_memory(sizeof(char) * cols);
+    int i;
+    for (i = 0; i < rows; i++) labyrinth[i] = (char*) create_shared_memory(sizeof(char) * cols);
 
     // Setting all the cells as UNEXPLORED.
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
-            labyrinth[i][j] = UNEXPLORED_CELL;
+    int j, z;
+    for (j = 0; j < rows; j++) {
+        for (z = 0; z < cols; z++) {
+            labyrinth[j][z] = UNEXPLORED_CELL;
         }
     }
 
     // Calculating and adding father start position to the matrix.
     struct position* father_position = calculate_father_position();
+    current_position = father_position;
     labyrinth[father_position->row][father_position->col] = FATHER_CELL;
 
     // Calculating and adding loot position to the matrix.
-    struct position* loot_position = calculate_loot_position();
+    struct position* loot_position = calculate_loot_position(father_position);
     printf("%i %i\n", loot_position->row, loot_position->col);
     labyrinth[loot_position->row][loot_position->col] = LOOT_CELL;
 
@@ -135,39 +244,37 @@ struct position** calculate_next_positions(int row, int col) {
 
     // Top verification.
     if (row - 1 >= 0) {
-        struct position* next_position = (struct position*) malloc(sizeof(struct position));
-        next_position->row = row - 1;
-        next_position->col = col;
-        next_positions[position_index] = next_position;
-        position_index++;
+        if (labyrinth[row - 1][col] == UNEXPLORED_CELL || labyrinth[row - 1][col] == LOOT_CELL) {
+            next_positions[position_index] = allocate_position_struct(row - 1, col);
+            position_index++;
+        }
     }
 
     // Bottom verification.
     if (row + 1 < rows) {
-        struct position* next_position = (struct position*) malloc(sizeof(struct position));
-        next_position->row = row + 1;
-        next_position->col = col;
-        next_positions[position_index] = next_position;
-        position_index++;
+        if (labyrinth[row + 1][col] == UNEXPLORED_CELL || labyrinth[row + 1][col] == LOOT_CELL) {
+            next_positions[position_index] = allocate_position_struct(row + 1, col);
+            position_index++;
+        }
     }
 
     // Left verification.
     if (col - 1 >= 0) {
-        struct position* next_position = (struct position*) malloc(sizeof(struct position));
-        next_position->row = row;
-        next_position->col = col - 1;
-        next_positions[position_index] = next_position;
-        position_index++;
+        if (labyrinth[row][col - 1] == UNEXPLORED_CELL || labyrinth[row][col - 1] == LOOT_CELL) {
+            next_positions[position_index] = allocate_position_struct(row, col - 1);
+            position_index++;
+        }
     }
 
     // Right verification.
     if (col + 1 < cols) {
-        struct position* next_position = (struct position*) malloc(sizeof(struct position));
-        next_position->row = row;
-        next_position->col = col + 1;
-        next_positions[position_index] = next_position;
-        position_index++;
+        if (labyrinth[row][col + 1] == UNEXPLORED_CELL || labyrinth[row][col + 1] == LOOT_CELL) {
+            next_positions[position_index] = allocate_position_struct(row, col + 1);
+            position_index++;
+        }
     }
+
+    next_positions_size = position_index;
 
     // Returns the new position structure.
     return next_positions;
@@ -175,8 +282,9 @@ struct position** calculate_next_positions(int row, int col) {
 
 void print_labyrinth() {
     // Loop through the matrix and print the values.
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
+    int i, j;
+    for (i = 0; i < rows; i++) {
+        for (j = 0; j < cols; j++) {
             printf("%c", labyrinth[i][j]);
         }
         printf("\n");
